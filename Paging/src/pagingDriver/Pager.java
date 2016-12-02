@@ -1,6 +1,5 @@
 package pagingDriver;
 import java.util.*;
-import java.io.*;
 /**
  * Created by jeffersonvivanco on 11/28/16.
  */
@@ -30,38 +29,134 @@ public class Pager {
         System.out.println("The process size is "+processSize);
         System.out.println("The job mix number is "+jobMixNumber);
         System.out.println("The number of references per process is "+numOfRefPerProc);
-        System.out.println("The replacement algorithm is "+replacementAlgo);
+        System.out.println("The replacement algorithm is "+replacementAlgo+"\n\n");
 
-        int[] frameTable = new int[machineSize/pageSize];
+        /* Queue for lru replacement algorithm */
+        Queue<Page> pageQueue = new LinkedList<>();
+
+        /* Array that represents frame table */
+        Page[] frameTable = new Page[machineSize/pageSize];
+
         if(jobMixNumber==1){
-            Arrays.fill(frameTable, -1);
+            Arrays.fill(frameTable, null);
             Process process = new Process(1);
+            int finishTime = 0;
+            int totalFaults = 0;
+            Evictions totalEvictions = new Evictions();
             for(int i=1; i<=numOfRefPerProc; i++){
                 int refWord = (111*process.getProcessNum()+(i-1))%processSize;
                 int pageNum = refWord/pageSize;
-                int hitNum = hit(frameTable,pageNum);
+                Page currentPage = new Page(pageNum,process.getProcessNum());
+                int hitNum = hit(frameTable,currentPage);
                 if(hitNum>=0){
-                    System.out.println(process.getProcessNum()+ "references word "+refWord+"("+pageNum+")"+
-                    " at time "+i+": Hit in frame"+ hitNum);
+                    System.out.println(process.getProcessNum()+ " references word "+refWord+" page("+pageNum+")"+
+                    " at time "+i+": Hit in frame "+ hitNum);
+                    if(pageQueue.isEmpty()){
+                        pageQueue.add(currentPage);
+                    }
+                    else if(pageQueue.contains(currentPage)){
+                        Iterator<Page> iterator = pageQueue.iterator();
+                        while (iterator.hasNext()){
+                            Page p = iterator.next();
+                            if(currentPage.equals(p)){
+                                iterator.remove();
+                            }
+                        }
+                        pageQueue.add(currentPage);
+                    }
+                    else if(!pageQueue.contains(currentPage)){
+                        pageQueue.add(currentPage);
+                    }
+                    else {
+                        //do nothing
+                    }
                 }
                 else{
-
+                    process.pageFault();
+                    totalFaults++;
+                    pageQueue.add(currentPage);
+                    int frameUsedOrEvicted = add(frameTable,currentPage,replacementAlgo,pageQueue,process, i, totalEvictions);
+                    if(frameUsedOrEvicted >= 0){
+                        System.out.println(process.getProcessNum()+ " references word "+refWord+
+                                " page("+pageNum+") at time "+i+ ": Fault using free frame "+frameUsedOrEvicted);
+                    }
                 }
+                finishTime = i;
 
             }
+            if(totalEvictions.getNumOfEvictions() != 0){
+                System.out.printf("\nProcess %d had %d faults and %.1f average residency. \n",process.getProcessNum(),process.getNumOfPageFaults(),process.getAvgResTime());
+                System.out.printf("\nThe total number of faults is %d and the overall average residency is %.1f. \n",totalFaults,process.getResTime()/totalEvictions.getNumOfEvictions());
+            }
+            else{
+                System.out.printf("\nProcess %d had %d faults with no evictions, the average residence is undefined. \n",process.getProcessNum(),process.getNumOfPageFaults());
+                System.out.printf("\nThe total number of faults is %d with no evictions, the overall average residence is undefined. \n",totalFaults);
+            }
+
         }
 
     }
 
-    public int hit(int[] frameTable, int pageNum){
+    public int hit(Page[] frameTable, Page currentPage){
         int index=-1;
         for(int i=0; i<frameTable.length; i++){
-            if(pageNum ==i){
-                index = i;
+            if(frameTable[i] != null){
+                if(currentPage.equals(frameTable[i])){
+                    currentPage.setLoadedTime(frameTable[i].getLoadedTime());
+                    return i;
+                }
             }
         }
         return index;
     }
+    public int add(Page[] frameTable, Page currentPage, String replacementAlgo, Queue<Page> pageQueue, Process process, int time, Evictions totalEvictions){
+
+        for(int i=frameTable.length -1; i>=0; i--){
+            if(frameTable[i]== null){
+                frameTable[i]=currentPage;
+                currentPage.setLoadedTime(time);
+                return i;
+            }
+        }
+        return evict(frameTable,currentPage,replacementAlgo,pageQueue,process, time, totalEvictions);
+
+    }
+    public int evict(Page[] frameTable, Page currentPage, String replacementAlgo, Queue<Page> pageQueue, Process process, int time, Evictions totalEvictions){
+
+        if(replacementAlgo.equalsIgnoreCase("lru")){
+            Page lru = pageQueue.poll();
+
+            for(int i=0; i<frameTable.length; i++){
+                if(lru.equals(frameTable[i])){
+                    process.addResTime(time - lru.getLoadedTime());
+                    process.incrementEvict();
+                    totalEvictions.incEvictions();
+                    currentPage.setLoadedTime(time);
+                    frameTable[i] = currentPage;
+
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
 
 
+
+}
+/*
+Eviction class that wraps an int to keep track of the total number of evictions that occur.
+ */
+class Evictions {
+    private int numOfEvictions;
+
+    public Evictions(){
+        numOfEvictions = 0;
+    }
+    public void incEvictions(){
+        this.numOfEvictions++;
+    }
+    public double getNumOfEvictions(){
+        return this.numOfEvictions*1.0;
+    }
 }

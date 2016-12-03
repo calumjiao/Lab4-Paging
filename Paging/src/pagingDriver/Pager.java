@@ -33,6 +33,8 @@ public class Pager {
 
         /* Queue for lru replacement algorithm */
         Queue<Page> pageQueue = new LinkedList<>();
+        /* Stack for lifo replacement algorithm */
+        Stack<Page> pageStack = new Stack<Page>();
 
         /* Array that represents frame table */
         Page[] frameTable = new Page[machineSize/pageSize];
@@ -51,31 +53,15 @@ public class Pager {
                 if(hitNum>=0){
                     System.out.println(process.getProcessNum()+ " references word "+refWord+" page("+pageNum+")"+
                     " at time "+i+": Hit in frame "+ hitNum);
-                    if(pageQueue.isEmpty()){
-                        pageQueue.add(currentPage);
-                    }
-                    else if(pageQueue.contains(currentPage)){
-                        Iterator<Page> iterator = pageQueue.iterator();
-                        while (iterator.hasNext()){
-                            Page p = iterator.next();
-                            if(currentPage.equals(p)){
-                                iterator.remove();
-                            }
-                        }
-                        pageQueue.add(currentPage);
-                    }
-                    else if(!pageQueue.contains(currentPage)){
-                        pageQueue.add(currentPage);
-                    }
-                    else {
-                        //do nothing
-                    }
                 }
                 else{
                     process.pageFault();
                     totalFaults++;
-                    pageQueue.add(currentPage);
-                    int frameUsedOrEvicted = add(frameTable,currentPage,replacementAlgo,pageQueue,process, i, totalEvictions);
+                    if(replacementAlgo.equalsIgnoreCase("lru")){
+                        pageQueue.add(currentPage);
+                    }
+
+                    int frameUsedOrEvicted = add(frameTable,currentPage,replacementAlgo,pageQueue,process, i, totalEvictions, pageStack);
                     if(frameUsedOrEvicted >= 0){
                         System.out.println(process.getProcessNum()+ " references word "+refWord+
                                 " page("+pageNum+") at time "+i+ ": Fault using free frame "+frameUsedOrEvicted);
@@ -109,40 +95,76 @@ public class Pager {
         }
         return index;
     }
-    public int add(Page[] frameTable, Page currentPage, String replacementAlgo, Queue<Page> pageQueue, Process process, int time, Evictions totalEvictions){
+    public int add(Page[] frameTable, Page currentPage, String replacementAlgo, Queue<Page> pageQueue, Process process, int time, Evictions totalEvictions, Stack<Page> pageStack){
 
         for(int i=frameTable.length -1; i>=0; i--){
             if(frameTable[i]== null){
                 frameTable[i]=currentPage;
                 currentPage.setLoadedTime(time);
+                if(replacementAlgo.equalsIgnoreCase("lifo")){
+                    pageStack.add(currentPage);
+                }
+                if(replacementAlgo.equalsIgnoreCase("lru")){
+                    if(pageQueue.contains(currentPage)){
+                        Iterator<Page> iterator = pageQueue.iterator();
+                        while (iterator.hasNext()){
+                            Page p = iterator.next();
+                            if(currentPage.equals(p)){
+                                iterator.remove();
+                            }
+                        }
+                        pageQueue.add(currentPage);
+                    }
+                    else {
+                        pageQueue.add(currentPage);
+                    }
+                }
                 return i;
             }
         }
-        return evict(frameTable,currentPage,replacementAlgo,pageQueue,process, time, totalEvictions);
+        return evict(frameTable,currentPage,replacementAlgo,pageQueue,process, time, totalEvictions, pageStack);
 
     }
-    public int evict(Page[] frameTable, Page currentPage, String replacementAlgo, Queue<Page> pageQueue, Process process, int time, Evictions totalEvictions){
-
-        if(replacementAlgo.equalsIgnoreCase("lru")){
-            Page lru = pageQueue.poll();
-
-            for(int i=0; i<frameTable.length; i++){
-                if(lru.equals(frameTable[i])){
-                    process.addResTime(time - lru.getLoadedTime());
-                    process.incrementEvict();
-                    totalEvictions.incEvictions();
-                    currentPage.setLoadedTime(time);
-                    frameTable[i] = currentPage;
-
-                    return i;
+    public int evict(Page[] frameTable, Page currentPage, String replacementAlgo, Queue<Page> pageQueue, Process process, int time, Evictions totalEvictions, Stack<Page>pageStack){
+        Page removed = null;
+        switch (replacementAlgo){
+            case "lru":
+                removed = pageQueue.poll();
+                break;
+            case "lifo":
+                removed = pageStack.pop();
+                break;
+        }
+        for(int i=0; i<frameTable.length; i++){
+            if(removed.equals(frameTable[i])){
+                process.addResTime(time - removed.getLoadedTime());
+                process.incrementEvict();
+                totalEvictions.incEvictions();
+                currentPage.setLoadedTime(time);
+                frameTable[i] = currentPage;
+                if(replacementAlgo.equalsIgnoreCase("lru")){
+                    if(pageQueue.contains(currentPage)){
+                        Iterator<Page> iterator = pageQueue.iterator();
+                        while (iterator.hasNext()){
+                            Page p = iterator.next();
+                            if(currentPage.equals(p)){
+                                iterator.remove();
+                            }
+                        }
+                        pageQueue.add(currentPage);
+                    }
+                    else {
+                        pageQueue.add(currentPage);
+                    }
                 }
+                if(replacementAlgo.equalsIgnoreCase("lifo")){
+                    pageStack.add(currentPage);
+                }
+                return i;
             }
         }
         return -1;
     }
-
-
-
 }
 /*
 Eviction class that wraps an int to keep track of the total number of evictions that occur.

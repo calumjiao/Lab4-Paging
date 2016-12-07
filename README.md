@@ -32,6 +32,6 @@ Issues: If it says it can't find a random number file, please navigate to
         Pager.java in the project and change input to the absolute path
         of your random number file (line 26). If you have any other issues 
         running the program please contact me at jv1019@nyu.edu.
-</pre?
+</pre>
 
 
